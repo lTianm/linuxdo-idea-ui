@@ -3885,10 +3885,62 @@
         if (panel) panel.classList.remove('show');
     }
 
+    function toggleExternalPostFavorite(info) {
+        const topicId = String(info?.topicId || getTopicId() || '');
+        const postId = String(info?.postId || '');
+        if (!/^\d+$/.test(topicId) || !/^\d+$/.test(postId)) {
+            return { ok: false, favorited: false };
+        }
+
+        const id = `${topicId}_${postId}`;
+        const favorites = getFavorites();
+        if (favorites[id]) {
+            delete favorites[id];
+            saveFavorites(favorites);
+            insertPostFavButtons();
+            insertBookmarkFavButtons();
+            return { ok: true, favorited: false };
+        }
+
+        const postNumber = String(info.postNumber || '');
+        const title = String(info.title || document.title || 'LinuxDo 帖子');
+        const path = `/t/${topicId}${postNumber && postNumber !== '1' ? `/${postNumber}` : ''}`;
+        const folders = getFolders();
+        let folder = '默认收藏';
+        const category = String(info.category || '');
+        if (getMode() === 'auto' && category) {
+            const match = folders.find(f => f.includes(category) || category.includes(f));
+            if (match) folder = match;
+        }
+        favorites[id] = {
+            id,
+            topicId,
+            postId,
+            postNumber: postNumber || undefined,
+            title,
+            url: path,
+            category,
+            tags: Array.isArray(info.tags) ? info.tags : [],
+            replyPreview: String(info.replyPreview || ''),
+            addedAt: Date.now(),
+            isPost: true,
+            folder
+        };
+        saveFavorites(favorites);
+        insertPostFavButtons();
+        insertBookmarkFavButtons();
+        return { ok: true, favorited: true };
+    }
+
     // 暴露一个轻量桥接接口，供 linuxdo-im 等外观脚本打开同一收藏夹面板。
     window.__linuxdoFavorites = window.__linuxdoFavorites || {};
     window.__linuxdoFavorites.openPanel = showFavoritesPanel;
     window.__linuxdoFavorites.closePanel = hideFavoritesPanel;
+    window.__linuxdoFavorites.togglePost = toggleExternalPostFavorite;
+    window.__linuxdoFavorites.isPostFavorited = (topicId, postId) => {
+        const favorites = getFavorites();
+        return Boolean(favorites[`${topicId}_${postId}`]);
+    };
 
     function animatePanelListUpdate(updateFn) {
         const before = capturePanelListTransition();

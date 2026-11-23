@@ -3156,6 +3156,9 @@ background: var(--im-hover); color: var(--im-accent);
 .im-msg-tool.liked {
 color: var(--im-accent);
 }
+.im-msg-tool.im-favorites-active {
+color: #F2B01E !important;
+}
 
 .im-empty-btn {
 margin-top: 6px;
@@ -8438,6 +8441,7 @@ body.im-detail-open #reply-control {
   ICONS.cloud = ICONS.doc;
   ICONS.wiki = ICONS.doc;
   ICONS.task = ICONS.todo;
+  ICONS.collectFill = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.2l2.1 4.3 4.8.7-3.5 3.4.8 4.8-4.2-2.3-4.2 2.3.8-4.8-3.5-3.4 4.8-.7L12 4.2Z"/></svg>`;
   ICONS.contacts = ICONS.book;
   ICONS.project = ICONS.proj;
   ICONS.msgFill = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4c-4.7 0-8.4 3-8.4 7 0 2.2 1.1 4.2 2.9 5.5l-.6 3 3.5-1.7c.8.2 1.7.3 2.6.3 4.7 0 8.4-3 8.4-7S16.7 4 12 4Z"/></svg>`;
@@ -10588,7 +10592,7 @@ body.im-detail-open #reply-control {
       } else if (toolBtn.dataset.action === "favorites") {
         e.preventDefault();
         e.stopPropagation();
-        openFavoritesPanelFromIm(toolBtn);
+        toggleFavoritePostFromIm(toolBtn, msg);
       } else if (NATIVE_ACTION_SEL[toolBtn.dataset.action]) {
         e.preventDefault();
         e.stopPropagation();
@@ -10913,6 +10917,42 @@ body.im-detail-open #reply-control {
     showImToast("请先安装 linux-do-favorites.user.js 收藏夹脚本", trigger);
     return false;
   }
+  function syncExternalFavoriteButtons(root = document) {
+    const api = window.__linuxdoFavorites;
+    if (!api || typeof api.isPostFavorited !== "function") return;
+    root.querySelectorAll?.('.im-msg[data-post-id]').forEach((msg) => {
+      const btn = msg.querySelector('.im-msg-tool[data-action="favorites"]');
+      if (!btn) return;
+      const on = Boolean(api.isPostFavorited(chatState.topicId, msg.dataset.postId));
+      btn.classList.toggle("im-favorites-active", on);
+      btn.innerHTML = on ? ICONS.collectFill : ICONS.collect;
+      btn.title = on ? "取消收藏此回复" : "收藏此回复";
+    });
+  }
+  function toggleFavoritePostFromIm(trigger, msg) {
+    const api = window.__linuxdoFavorites;
+    const postId = msg?.dataset.postId;
+    if (!api || typeof api.togglePost !== "function" || !postId) {
+      openFavoritesPanelFromIm(trigger);
+      return;
+    }
+    const postNumber = Number(msg.dataset.postNumber) || 0;
+    const preview = msg.querySelector(".im-msg-bubble")?.textContent?.replace(/\s+/g, " ").trim() || "";
+    const result = api.togglePost({
+      topicId: chatState.topicId,
+      postId,
+      postNumber,
+      title: postNumber > 1 ? `${chatState.title || "LinuxDo 帖子"} - #${postNumber}` : (chatState.title || "LinuxDo 帖子"),
+      replyPreview: preview.slice(0, 160)
+    });
+    if (!result?.ok) {
+      openFavoritesPanelFromIm(trigger);
+      return;
+    }
+    trigger.classList.toggle("im-favorites-active", result.favorited);
+    trigger.innerHTML = result.favorited ? ICONS.collectFill : ICONS.collect;
+    trigger.title = result.favorited ? "取消收藏此回复" : "收藏此回复";
+  }
   function bubbleHtml(post, myName) {
     var _a2, _b2, _c;
     const me = isMyPost(post, myName);
@@ -10996,8 +11036,8 @@ body.im-detail-open #reply-control {
           <button class="im-msg-tool" data-action="reply" title="回复">${ICONS.reply}</button>
           <button class="im-msg-tool" data-action="copy-link" title="复制链接">${ICONS.link}</button>
           <button class="im-msg-tool${post.bookmarked ? " bookmarked" : ""}" data-action="bookmark" title="${post.bookmarked ? "取消收藏" : "收藏"}">${post.bookmarked ? ICONS.bookmarkFill || ICONS.bookmark : ICONS.bookmark}</button>
-          <button class="im-msg-tool" data-action="favorites" title="打开收藏夹">${ICONS.collect}</button>
           <button class="im-msg-tool" data-action="flag" title="举报">${ICONS.flag}</button>
+          <button class="im-msg-tool${window.__linuxdoFavorites?.isPostFavorited?.(chatState.topicId, post.id) ? " im-favorites-active" : ""}" data-action="favorites" title="收藏此回复">${window.__linuxdoFavorites?.isPostFavorited?.(chatState.topicId, post.id) ? ICONS.collectFill : ICONS.collect}</button>
         </div>
       </div>
     </div>`;
@@ -11278,6 +11318,7 @@ body.im-detail-open #reply-control {
         body.innerHTML = renderBubbles(posts, getCurrentUsername()) || `<div class="im-chat-empty">${ICONS.msg}<div>暂无消息</div></div>`;
         afterChatPaint(body);
         patchDevicesFromEmber(body);
+        syncExternalFavoriteButtons(body);
         if (scrollToPost) {
           requestAnimationFrame(() => scrollChatToPost(body, scrollToPost, true));
         } else {
@@ -11316,6 +11357,7 @@ body.im-detail-open #reply-control {
         body.scrollTop += body.scrollHeight - prevHeight;
         afterChatPaint(body);
         patchDevicesFromEmber(body);
+        syncExternalFavoriteButtons(body);
       }
     } catch {
     } finally {
@@ -11357,6 +11399,7 @@ body.im-detail-open #reply-control {
         body.insertAdjacentHTML("beforeend", renderBubbles(posts, getCurrentUsername()));
         (_a2 = chatHooks.enhancePolls) == null ? void 0 : _a2.call(chatHooks, body);
         patchDevicesFromEmber(body);
+        syncExternalFavoriteButtons(body);
       }
     } catch {
     } finally {
@@ -11393,6 +11436,7 @@ body.im-detail-open #reply-control {
         body.innerHTML = renderBubbles(posts, getCurrentUsername()) || `<div class="im-chat-empty">${ICONS.msg}<div>暂无消息</div></div>`;
         afterChatPaint(body);
         patchDevicesFromEmber(body);
+        syncExternalFavoriteButtons(body);
         requestAnimationFrame(() => scrollChatToPost(body, landed, highlight));
         rememberTopicPost(topicId, landed);
       }
