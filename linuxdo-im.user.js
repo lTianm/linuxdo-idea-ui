@@ -11143,10 +11143,17 @@ body.im-detail-open #reply-control {
         }
       }
       const stream = data.post_stream && data.post_stream.stream;
-      // 记忆楼层接口可能同时返回目标楼层和末尾窗口，不能直接拼接，否则会出现 92 楼后跳到 157 楼。
-      // 按完整 stream 重新取目标楼层附近的连续窗口，保证展示顺序和楼层连续性。
-      if (scrollToPost && Array.isArray(stream) && stream.length) {
-        const target = posts.find((post) => Number(post.post_number) === Number(scrollToPost));
+      // 话题接口可能同时返回当前阅读窗口和末尾窗口，不能直接拼接，否则会出现 98 楼后跳到 201 楼。
+      // 检测 stream 中的断档，并按目标楼层或首个连续窗口重新取数据。
+      if (Array.isArray(stream) && stream.length && posts.length) {
+        const orderedPosts = sortPostsByStream(posts, stream);
+        const loadedIndexes = orderedPosts
+          .map((post) => stream.findIndex((id) => String(id) === String(post.id)))
+          .filter((index) => index >= 0);
+        const hasGap = loadedIndexes.some((index, i) => i > 0 && index > loadedIndexes[i - 1] + 1);
+        const target = scrollToPost
+          ? orderedPosts.find((post) => Number(post.post_number) === Number(scrollToPost))
+          : (hasGap ? orderedPosts[0] : null);
         const targetIdx = target
           ? stream.findIndex((id) => String(id) === String(target.id))
           : -1;
