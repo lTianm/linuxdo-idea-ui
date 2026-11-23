@@ -11142,7 +11142,30 @@ body.im-detail-open #reply-control {
         } catch {
         }
       }
-      chatState.stream = data.post_stream && data.post_stream.stream || posts.map((p) => p.id);
+      const stream = data.post_stream && data.post_stream.stream;
+      // 记忆楼层接口可能同时返回目标楼层和末尾窗口，不能直接拼接，否则会出现 92 楼后跳到 157 楼。
+      // 按完整 stream 重新取目标楼层附近的连续窗口，保证展示顺序和楼层连续性。
+      if (scrollToPost && Array.isArray(stream) && stream.length) {
+        const target = posts.find((post) => Number(post.post_number) === Number(scrollToPost));
+        const targetIdx = target
+          ? stream.findIndex((id) => String(id) === String(target.id))
+          : -1;
+        if (targetIdx >= 0) {
+          const windowIds = stream.slice(Math.max(0, targetIdx - 10), targetIdx + 11);
+          try {
+            const qs = windowIds.map((id) => `post_ids[]=${id}`).join("&");
+            const windowData = await api(`/t/${topicId}/posts.json?${qs}`, trackHeaders);
+            const windowPosts = sortPostsByStream(
+              windowData.post_stream && windowData.post_stream.posts || windowData.posts || [],
+              windowIds
+            );
+            if (windowPosts.length) posts = windowPosts;
+          } catch {
+            // 取不到连续窗口时保留原响应，避免影响话题打开。
+          }
+        }
+      }
+      chatState.stream = stream || posts.map((p) => p.id);
       chatState.renderedFirstIdx = chatState.stream.indexOf(posts.length ? posts[0].id : -1);
       if (chatState.renderedFirstIdx < 0) chatState.renderedFirstIdx = 0;
       const lastLoadedId = posts.length ? posts[posts.length - 1].id : -1;
