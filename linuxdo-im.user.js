@@ -10252,6 +10252,30 @@ body.im-detail-open #reply-control {
       });
     }
   }
+  function ensureFavoritesButton(panel) {
+    if (!panel) return;
+    const actions = panel.querySelector(".im-chat-actions");
+    if (!actions) return;
+    let btn = actions.querySelector(".im-chat-favorites");
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "im-icon-btn im-chat-favorites";
+      btn.title = "打开收藏夹";
+      btn.innerHTML = ICONS.collect;
+      const spamBtn = actions.querySelector(".im-chat-spam-toggle");
+      if (spamBtn) actions.insertBefore(btn, spamBtn.nextSibling);
+      else actions.appendChild(btn);
+    }
+    if (btn.dataset.bound !== "1") {
+      btn.dataset.bound = "1";
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openFavoritesPanelFromIm(btn);
+      });
+    }
+  }
   function ensureChatPanel() {
     var _a2, _b2, _c, _d;
     let panel = document.querySelector(".im-chat-panel");
@@ -10265,6 +10289,7 @@ body.im-detail-open #reply-control {
         bindChatPanelEvents(panel);
       }
       ensureSpamToggleButton(panel);
+      ensureFavoritesButton(panel);
       ensureBlurImgToggle(panel);
       ensureWatermarkButton(panel);
       (_a2 = chatHooks.wireComposer) == null ? void 0 : _a2.call(chatHooks, panel);
@@ -10314,6 +10339,7 @@ body.im-detail-open #reply-control {
         <button class="im-icon-btn im-chat-scrolltop" title="回到顶部">${ICONS.scrollTop}</button>
         <button class="im-icon-btn im-chat-refresh" title="刷新本话题">${ICONS.refresh}</button>
         <button class="im-icon-btn im-chat-spam-toggle" title="水贴过滤设置">${ICONS.shield}</button>
+        <button class="im-icon-btn im-chat-favorites" title="打开收藏夹">${ICONS.collect}</button>
         <button class="im-icon-btn im-chat-summarize" title="AI 总结">${ICONS.spark}<span>总结</span></button>
         <button class="im-icon-btn im-chat-native" title="切换原生视图">${ICONS.external}</button>
       </div>
@@ -10333,6 +10359,7 @@ body.im-detail-open #reply-control {
     document.body.appendChild(panel);
     bindChatPanelEvents(panel);
     ensureSpamToggleButton(panel);
+    ensureFavoritesButton(panel);
     ensureBlurImgToggle(panel);
     ensureWatermarkButton(panel);
     (_c = chatHooks.wireComposer) == null ? void 0 : _c.call(chatHooks, panel);
@@ -10558,6 +10585,10 @@ body.im-detail-open #reply-control {
           var _a3;
           return (_a3 = chatHooks.refreshDetailIfOpen) == null ? void 0 : _a3.call(chatHooks, postNum);
         }, 400);
+      } else if (toolBtn.dataset.action === "favorites") {
+        e.preventDefault();
+        e.stopPropagation();
+        openFavoritesPanelFromIm(toolBtn);
       } else if (NATIVE_ACTION_SEL[toolBtn.dataset.action]) {
         e.preventDefault();
         e.stopPropagation();
@@ -10868,6 +10899,20 @@ body.im-detail-open #reply-control {
     }
     (_c = chatHooks.toast) == null ? void 0 : _c.call(chatHooks, "该楼层不支持此操作", trigger);
   }
+  function openFavoritesPanelFromIm(trigger) {
+    const api = window.__linuxdoFavorites;
+    if (api && typeof api.openPanel === "function") {
+      api.openPanel();
+      return true;
+    }
+    const sidebarButton = document.getElementById("ld-fav-sidebar-btn");
+    if (sidebarButton) {
+      sidebarButton.click();
+      return true;
+    }
+    showImToast("请先安装 linux-do-favorites.user.js 收藏夹脚本", trigger);
+    return false;
+  }
   function bubbleHtml(post, myName) {
     var _a2, _b2, _c;
     const me = isMyPost(post, myName);
@@ -10951,6 +10996,7 @@ body.im-detail-open #reply-control {
           <button class="im-msg-tool" data-action="reply" title="回复">${ICONS.reply}</button>
           <button class="im-msg-tool" data-action="copy-link" title="复制链接">${ICONS.link}</button>
           <button class="im-msg-tool${post.bookmarked ? " bookmarked" : ""}" data-action="bookmark" title="${post.bookmarked ? "取消收藏" : "收藏"}">${post.bookmarked ? ICONS.bookmarkFill || ICONS.bookmark : ICONS.bookmark}</button>
+          <button class="im-msg-tool" data-action="favorites" title="打开收藏夹">${ICONS.collect}</button>
           <button class="im-msg-tool" data-action="flag" title="举报">${ICONS.flag}</button>
         </div>
       </div>
