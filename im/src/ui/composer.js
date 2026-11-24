@@ -8,6 +8,8 @@ import {
 } from "../bridge/discourse.js";
 import { getCurrentUsername } from "../bridge/user.js";
 import { LOCK_CLASS, COMPOSE_PREVIEW_KEY } from "../config/constants.js";
+import { setViewMode } from "../state/view-state.js";
+import { flushReadTracking } from "../features/read-track.js";
 import { appendSubmittedPost, syncNewPostsFromDom } from "./chat-panel.js";
 import { chatHooks } from "./hooks.js";
 import { mdToHtml, registerUploadUrl } from "./markdown-lite.js";
@@ -1150,25 +1152,10 @@ export function openNewTopicComposer() {
       document.querySelector("#reply-control.open textarea, #reply-control.open .ProseMirror")?.focus?.();
       return true;
     }
-    let opened = false;
-    if (!opened) {
-      try { opened = !!clickNativeCreateTopicButton(); } catch { /* fall through */ }
-    }
-    if (!opened) {
-      try { opened = !!openTopicComposerViaService(); } catch { /* fall through */ }
-    }
-    if (!opened) openTopicComposerViaKeyboard();
-    setTimeout(() => {
-      if (isComposerOpen()) {
-        setComposeStatus("编辑器已打开", "busy");
-      } else {
-        setComposeStatus("打开发帖编辑器失败：请切右上角「原生视图」发帖", "error");
-        console.warn("[linuxdo-im] openNewTopicComposer failed", {
-          hasOwner: !!getEmberOwner(),
-          hasComposer: !!getComposerService(getEmberOwner())
-        });
-      }
-    }, 350);
+    // 原生发帖入口会触发 Discourse 的 Ember 编辑器；在 IM DOM 上模拟点击
+    // 可能与本脚本的 MutationObserver 互相触发而冻结页面，因此先切回原生视图。
+    setViewMode("native");
+    Promise.resolve(flushReadTracking?.()).finally(() => location.reload());
     return true;
   } catch (err) {
     console.warn("[linuxdo-im] openNewTopicComposer crashed", err);

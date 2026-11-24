@@ -82,8 +82,9 @@ async function loadAccessibleLevelNavItems() {
   try {
     const categories = await loadCategories();
     accessibleLevelNavItems = categories.map((category) => {
-      const match = String(category.name || "").match(/^开发调优[,，\s]+Lv(\d+)\s*$/i);
-      if (!match || !category.slug || !category.id) return null;
+      const match = String(category.name || "").match(/开发调优.*?Lv\s*(\d+)/i);
+      // categories.json 可能同时返回无权访问的分类；只展示当前账号可读的等级。
+      if (!match || category.read_restricted === true || !category.slug || !category.id) return null;
       return { href: `/c/${category.slug}/${category.id}`, label: `Lv${match[1]}`, level: Number(match[1]) };
     }).filter(Boolean).sort((a, b) => a.level - b.level).map(({ level, ...item }) => item);
   } catch {
@@ -146,11 +147,16 @@ function syncListSort(panel) {
 function collectListNavItems() {
   const native = document.querySelector("#navigation-bar");
   if (native) {
-    const items = [...native.querySelectorAll(":scope > li > a, li > a")].map((a) => ({
+    const items = [...native.querySelectorAll(":scope > li > a, li > a")].map((a) => {
+      const label = (a.textContent || "").replace(/\s+/g, " ").trim();
+      const countNode = a.querySelector(".badge-notification, .badge, .count, [data-count], [class*='count'], [class*='badge']");
+      const count = (countNode?.textContent || countNode?.getAttribute("data-count") || "").replace(/\s+/g, " ").trim();
+      return {
       href: a.getAttribute("href") || "#",
-      label: (a.textContent || "").replace(/\s+/g, " ").trim(),
+      label: count && !/\d/.test(label) ? `${label} (${count.replace(/[()]/g, "")})` : label,
       active: a.classList.contains("active") || a.getAttribute("aria-current") === "page"
-    })).filter((it) => it.label && it.href && it.href !== "#");
+      };
+    }).filter((it) => it.label && it.href && it.href !== "#");
     // 去重（有的主题 li>a 会匹配两次）
     const seen = new Set();
     const deduped = items.filter((it) => {
@@ -198,11 +204,16 @@ export function syncListNav() {
       ).join("") +
       `</div>`;
   }
-    if (nav.dataset.sig === html) return; // 避免无变化时触发 MutationObserver 死循环
+    const sortSel = nav.querySelector(".im-list-sort");
+    if (nav.dataset.sig === html && sortSel) { // 避免无变化时触发 MutationObserver 死循环，同时保留排序控件
+      syncListSort(nav.closest(".im-list-panel"));
+      return;
+    }
   nav.dataset.sig = html;
-  const sortSel = nav.querySelector(".im-list-sort"); // 重写前保存引用，重写后放回行尾
+  // 重写导航时保留排序下拉框，避免动态等级菜单刷新后控件消失。
   nav.innerHTML = html;
   if (sortSel) nav.appendChild(sortSel);
+  syncListSort(nav.closest(".im-list-panel"));
 }
 
 function bindListPanelClicks(panel) {

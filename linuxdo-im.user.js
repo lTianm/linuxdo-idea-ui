@@ -8059,7 +8059,8 @@ body.im-detail-open #reply-control {
       const categories = await loadCategories();
       accessibleLevelNavItems = categories.map((category) => {
         const match = String(category.name || "").match(/^开发调优[,，\s]+Lv(\d+)\s*$/i);
-        if (!match || !category.slug || !category.id) return null;
+      // categories.json 可能同时返回无权访问的分类；只展示当前账号可读的等级。
+      if (!match || category.read_restricted === true || !category.slug || !category.id) return null;
         return { href: `/c/${category.slug}/${category.id}`, label: `Lv${match[1]}`, level: Number(match[1]) };
       }).filter(Boolean).sort((a, b) => a.level - b.level).map(({ level, ...item }) => item);
     } catch {
@@ -12993,31 +12994,10 @@ ${data.raw}
         (_b2 = (_a2 = document.querySelector("#reply-control.open textarea, #reply-control.open .ProseMirror")) == null ? void 0 : _a2.focus) == null ? void 0 : _b2.call(_a2);
         return true;
       }
-      let opened = false;
-      if (!opened) {
-        try {
-          opened = !!clickNativeCreateTopicButton();
-        } catch {
-        }
-      }
-      if (!opened) {
-        try {
-          opened = !!openTopicComposerViaService();
-        } catch {
-        }
-      }
-      if (!opened) openTopicComposerViaKeyboard();
-      setTimeout(() => {
-        if (isComposerOpen()) {
-          setComposeStatus("编辑器已打开", "busy");
-        } else {
-          setComposeStatus("打开发帖编辑器失败：请切右上角「原生视图」发帖", "error");
-          console.warn("[linuxdo-im] openNewTopicComposer failed", {
-            hasOwner: !!getEmberOwner(),
-            hasComposer: !!getComposerService(getEmberOwner())
-          });
-        }
-      }, 350);
+      // 原生发帖入口会触发 Discourse 的 Ember 编辑器；在 IM DOM 上模拟点击
+      // 可能与本脚本的 MutationObserver 互相触发而冻结页面，因此先切回原生视图。
+      setViewMode("native");
+      flushReadTracking().finally(() => location.reload());
       return true;
     } catch (err) {
       console.warn("[linuxdo-im] openNewTopicComposer crashed", err);
@@ -15376,11 +15356,16 @@ ${data.raw}
   function collectListNavItems() {
     const native = document.querySelector("#navigation-bar");
     if (native) {
-      const items = [...native.querySelectorAll(":scope > li > a, li > a")].map((a) => ({
-        href: a.getAttribute("href") || "#",
-        label: (a.textContent || "").replace(/\s+/g, " ").trim(),
-        active: a.classList.contains("active") || a.getAttribute("aria-current") === "page"
-      })).filter((it) => it.label && it.href && it.href !== "#");
+      const items = [...native.querySelectorAll(":scope > li > a, li > a")].map((a) => {
+        const label = (a.textContent || "").replace(/\s+/g, " ").trim();
+        const countNode = a.querySelector(".badge-notification, .badge, .count, [data-count], [class*='count'], [class*='badge']");
+        const count = (countNode?.textContent || countNode?.getAttribute("data-count") || "").replace(/\s+/g, " ").trim();
+        return {
+          href: a.getAttribute("href") || "#",
+          label: count && !/\d/.test(label) ? `${label} (${count.replace(/[()]/g, "")})` : label,
+          active: a.classList.contains("active") || a.getAttribute("aria-current") === "page"
+        };
+      }).filter((it) => it.label && it.href && it.href !== "#");
       const seen = /* @__PURE__ */ new Set();
       const deduped = items.filter((it) => {
         if (seen.has(it.href)) return false;
@@ -15422,11 +15407,15 @@ ${data.raw}
         (p) => `<a href="/top${p.path}" class="${(topMatch[1] || "") === p.path ? "active" : ""}">${p.label}</a>`
       ).join("") + `</div>`;
     }
-    if (nav.dataset.sig === html) return;
-    nav.dataset.sig = html;
     const sortSel = nav.querySelector(".im-list-sort");
+    if (nav.dataset.sig === html && sortSel) {
+      syncListSort(nav.closest(".im-list-panel"));
+      return;
+    }
+    nav.dataset.sig = html;
     nav.innerHTML = html;
     if (sortSel) nav.appendChild(sortSel);
+    syncListSort(nav.closest(".im-list-panel"));
   }
   function bindListPanelClicks(panel) {
     if (!panel || panel.dataset.linkBound === "2") return;
