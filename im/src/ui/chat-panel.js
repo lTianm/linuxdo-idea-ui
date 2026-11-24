@@ -906,6 +906,35 @@ function renderPostOrSpam(post, myName) {
   return bubbleHtml(post, myName);
 }
 
+export async function appendSubmittedPost(post) {
+  const body = document.querySelector(".im-chat-body");
+  if (!body || !post) return false;
+  let normalized = { ...post, id: post.id || post.post_id };
+  normalized.post_number = Number(post.post_number || post.postNumber || 0);
+  if (!normalized.id || !normalized.post_number) return false;
+  if (body.querySelector(`.im-msg[data-post-number="${normalized.post_number}"]`)) return true;
+  if (!normalized.cooked) {
+    try {
+      const response = await fetch(`/posts/${normalized.id}.json`, { credentials: "same-origin" });
+      if (response.ok) normalized = { ...(await response.json()), ...normalized };
+    } catch { /* 保留提交接口返回的数据 */ }
+  }
+  normalized.username = normalized.username || normalized.user?.username || getCurrentUsername() || "我";
+  normalized.name = normalized.name || normalized.user?.name || normalized.username;
+  normalized.created_at = normalized.created_at || new Date().toISOString();
+  normalized.cooked = normalized.cooked || escapeHtml(normalized.raw || "");
+  topicPostsMap.set(normalized.post_number, normalized);
+  body.insertAdjacentHTML("beforeend", renderPostOrSpam(normalized, getCurrentUsername()));
+  chatState.renderedLastNumber = Math.max(chatState.renderedLastNumber, normalized.post_number);
+  if (!chatState.stream.some((id) => String(id) === String(normalized.id))) chatState.stream.push(normalized.id);
+  chatState.renderedLastIdx = Math.max(0, chatState.stream.length - 1);
+  chatState.hasNewer = false;
+  afterChatPaint(body);
+  patchDevicesFromEmber(body);
+  body.scrollTo({ top: body.scrollHeight, behavior: "smooth" });
+  return true;
+}
+
 function renderBubbles(posts, myName) {
   const frag = [];
   let lastTime = 0;

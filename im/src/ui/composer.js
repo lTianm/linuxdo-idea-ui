@@ -8,7 +8,7 @@ import {
 } from "../bridge/discourse.js";
 import { getCurrentUsername } from "../bridge/user.js";
 import { LOCK_CLASS, COMPOSE_PREVIEW_KEY } from "../config/constants.js";
-import { syncNewPostsFromDom } from "./chat-panel.js";
+import { appendSubmittedPost, syncNewPostsFromDom } from "./chat-panel.js";
 import { chatHooks } from "./hooks.js";
 import { mdToHtml, registerUploadUrl } from "./markdown-lite.js";
 
@@ -497,7 +497,14 @@ function openNativeEmojiPicker(btn, onPick) {
       groupIdentifier: "emoji-picker",
       component: detached,
       modalForMobile: true,
-      data: { didSelectEmoji: (emoji) => onPick(emoji) }
+      data: {
+        didSelectEmoji: (emoji) => {
+          const value = typeof emoji === "string"
+            ? emoji
+            : emoji?.name || emoji?.id || emoji?.emoji || emoji?.unicode || "";
+          if (value) onPick(value);
+        }
+      }
     });
     return true;
   } catch {
@@ -794,7 +801,7 @@ async function submitComposer() {
   try {
     try {
       const post = await submitReplyViaApi(raw, replyTo);
-      completeComposerSubmission(input, post);
+      await completeComposerSubmission(input, post);
     } catch (apiError) {
       // 站点校验拒绝（字数不足等）：IM 内直接提示，不兜底原生编辑器
       if (apiError.validation) {
@@ -804,7 +811,7 @@ async function submitComposer() {
       setComposeStatus(`接口发送失败，尝试原生编辑器：${apiError.message || ""}`, "error");
       try {
         await submitNativeReply(raw, replyTo);
-        completeComposerSubmission(input);
+        await completeComposerSubmission(input);
       } catch (nativeError) {
         setComposeStatus(`发送失败：${nativeError.message || apiError.message || "未知错误"}`, "error");
       }
@@ -814,19 +821,15 @@ async function submitComposer() {
     updateComposeSendState();
   }
 }
-function completeComposerSubmission(input, post) {
+async function completeComposerSubmission(input, post) {
   mdClear(input);
   composerState.replyToPostNumber = null;
   hideTargetedReply();
   setComposeStatus("发送成功", "success");
-  if (post && (post.post_number || post.postNumber)) {
-    chatState.renderedLastNumber = Math.max(
-      chatState.renderedLastNumber,
-      Number(post.post_number || post.postNumber)
-    );
+  if (!(await appendSubmittedPost(post))) {
+    setTimeout(() => syncNewPostsFromDom(), 400);
+    setTimeout(() => syncNewPostsFromDom(), 1200);
   }
-  setTimeout(() => syncNewPostsFromDom(), 400);
-  setTimeout(() => syncNewPostsFromDom(), 1200);
 }
 async function submitNativeReply(raw, replyToPostNumber) {
   openNativeComposer(replyToPostNumber);
@@ -1121,7 +1124,8 @@ function clickNativeCreateTopicButton() {
   // 顶栏被皮肤隐藏但按钮仍在 DOM：程序化 click 不依赖可见性
   const btn = document.getElementById("create-topic");
   if (!btn) return false;
-  btn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  if (typeof btn.click === "function") btn.click();
+  else btn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
   return true;
 }
 function openTopicComposerViaKeyboard() {
@@ -1130,7 +1134,6 @@ function openTopicComposerViaKeyboard() {
     document.activeElement?.blur?.();
     const opts = { key: "c", code: "KeyC", keyCode: 67, which: 67, bubbles: true, cancelable: true, view: window };
     document.dispatchEvent(new KeyboardEvent("keydown", opts));
-    document.body.dispatchEvent(new KeyboardEvent("keydown", opts));
     return true;
   } catch {
     return false;
@@ -1148,9 +1151,11 @@ export function openNewTopicComposer() {
       return true;
     }
     let opened = false;
-    try { opened = !!openTopicComposerViaService(); } catch { /* fall through */ }
     if (!opened) {
       try { opened = !!clickNativeCreateTopicButton(); } catch { /* fall through */ }
+    }
+    if (!opened) {
+      try { opened = !!openTopicComposerViaService(); } catch { /* fall through */ }
     }
     if (!opened) openTopicComposerViaKeyboard();
     setTimeout(() => {

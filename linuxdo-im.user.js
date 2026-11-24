@@ -6801,7 +6801,6 @@ color: #7AA3D6;
     .__ROOT_CLASS__.__LOCK_CLASS__ .autocomplete,
     .__ROOT_CLASS__.__LOCK_CLASS__ .autocomplete-container,
     .__ROOT_CLASS__.__LOCK_CLASS__ .d-editor-popup,
-    .__ROOT_CLASS__.__LOCK_CLASS__ .emoji-picker,
     .__ROOT_CLASS__.__LOCK_CLASS__ .tag-chooser {
       display: none !important;
       visibility: hidden !important;
@@ -8050,6 +8049,27 @@ body.im-detail-open #reply-control {
     { href: "/bookmarks", label: "书签" },
     { href: "/categories", label: "类别" }
   ];
+  let accessibleLevelNavItems = [];
+  let levelNavLoaded = false;
+  let levelNavLoading = false;
+  async function loadAccessibleLevelNavItems() {
+    if (levelNavLoaded || levelNavLoading) return;
+    levelNavLoading = true;
+    try {
+      const categories = await loadCategories();
+      accessibleLevelNavItems = categories.map((category) => {
+        const match = String(category.name || "").match(/^开发调优[,，\s]+Lv(\d+)\s*$/i);
+        if (!match || !category.slug || !category.id) return null;
+        return { href: `/c/${category.slug}/${category.id}`, label: `Lv${match[1]}`, level: Number(match[1]) };
+      }).filter(Boolean).sort((a, b) => a.level - b.level).map(({ level, ...item }) => item);
+    } catch {
+      accessibleLevelNavItems = [];
+    } finally {
+      levelNavLoaded = true;
+      levelNavLoading = false;
+      syncListNav();
+    }
+  }
   const chatState = {
     topicId: null,
     loading: false,
@@ -12299,7 +12319,14 @@ body.im-detail-open #reply-control {
         groupIdentifier: "emoji-picker",
         component: detached,
         modalForMobile: true,
-        data: { didSelectEmoji: (emoji) => onPick(emoji) }
+        data: {
+          didSelectEmoji: (emoji) => {
+            const value = typeof emoji === "string"
+              ? emoji
+              : (emoji == null ? void 0 : emoji.name) || (emoji == null ? void 0 : emoji.id) || (emoji == null ? void 0 : emoji.emoji) || (emoji == null ? void 0 : emoji.unicode) || "";
+            if (value) onPick(value);
+          }
+        }
       });
       return true;
     } catch {
@@ -12587,7 +12614,7 @@ ${data.raw}
     try {
       try {
         const post = await submitReplyViaApi(raw, replyTo);
-        completeComposerSubmission(input, post);
+        await completeComposerSubmission(input, post);
       } catch (apiError) {
         if (apiError.validation) {
           setComposeStatus(`发送失败：${apiError.message}`, "error");
@@ -12596,7 +12623,7 @@ ${data.raw}
         setComposeStatus(`接口发送失败，尝试原生编辑器：${apiError.message || ""}`, "error");
         try {
           await submitNativeReply(raw, replyTo);
-          completeComposerSubmission(input);
+          await completeComposerSubmission(input);
         } catch (nativeError) {
           setComposeStatus(`发送失败：${nativeError.message || apiError.message || "未知错误"}`, "error");
         }
@@ -12606,19 +12633,49 @@ ${data.raw}
       updateComposeSendState();
     }
   }
-  function completeComposerSubmission(input, post) {
+  async function appendSubmittedPost(post) {
+    const body = document.querySelector(".im-chat-body");
+    if (!body || !post) return false;
+    let normalized = { ...post };
+    normalized.id = normalized.id || normalized.post_id;
+    normalized.post_number = Number(normalized.post_number || normalized.postNumber || 0);
+    if (!normalized.id || !normalized.post_number) return false;
+    if (body.querySelector(`.im-msg[data-post-number="${normalized.post_number}"]`)) return true;
+    if (!normalized.cooked && normalized.id) {
+      try {
+        const response = await fetch(`/posts/${normalized.id}.json`, { credentials: "same-origin" });
+        if (response.ok) normalized = { ...(await response.json()), ...normalized };
+      } catch {
+        // 保留提交接口返回的数据，后续实时同步仍可补齐正文。
+      }
+    }
+    normalized.username = normalized.username || normalized.user?.username || getCurrentUsername() || "我";
+    normalized.name = normalized.name || normalized.user?.name || normalized.username;
+    normalized.created_at = normalized.created_at || new Date().toISOString();
+    normalized.cooked = normalized.cooked || escapeHtml(normalized.raw || "");
+    topicPostsMap.set(normalized.post_number, normalized);
+    body.insertAdjacentHTML("beforeend", renderPostOrSpam(normalized, getCurrentUsername()));
+    chatState.renderedLastNumber = Math.max(chatState.renderedLastNumber, normalized.post_number);
+    if (normalized.id && !chatState.stream.some((id) => String(id) === String(normalized.id))) {
+      chatState.stream.push(normalized.id);
+    }
+    chatState.renderedLastIdx = Math.max(0, chatState.stream.length - 1);
+    chatState.hasNewer = false;
+    afterChatPaint(body);
+    patchDevicesFromEmber(body);
+    syncExternalFavoriteButtons(body);
+    body.scrollTo({ top: body.scrollHeight, behavior: "smooth" });
+    return true;
+  }
+  async function completeComposerSubmission(input, post) {
     mdClear(input);
     composerState.replyToPostNumber = null;
     hideTargetedReply();
     setComposeStatus("发送成功", "success");
-    if (post && (post.post_number || post.postNumber)) {
-      chatState.renderedLastNumber = Math.max(
-        chatState.renderedLastNumber,
-        Number(post.post_number || post.postNumber)
-      );
+    if (!(await appendSubmittedPost(post))) {
+      setTimeout(() => syncNewPostsFromDom(), 400);
+      setTimeout(() => syncNewPostsFromDom(), 1200);
     }
-    setTimeout(() => syncNewPostsFromDom(), 400);
-    setTimeout(() => syncNewPostsFromDom(), 1200);
   }
   async function submitNativeReply(raw, replyToPostNumber) {
     openNativeComposer(replyToPostNumber);
@@ -12910,7 +12967,8 @@ ${data.raw}
   function clickNativeCreateTopicButton() {
     const btn = document.getElementById("create-topic");
     if (!btn) return false;
-    btn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    if (typeof btn.click === "function") btn.click();
+    else btn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
     return true;
   }
   function openTopicComposerViaKeyboard() {
@@ -12919,7 +12977,6 @@ ${data.raw}
       (_b2 = (_a2 = document.activeElement) == null ? void 0 : _a2.blur) == null ? void 0 : _b2.call(_a2);
       const opts = { key: "c", code: "KeyC", keyCode: 67, which: 67, bubbles: true, cancelable: true, view: window };
       document.dispatchEvent(new KeyboardEvent("keydown", opts));
-      document.body.dispatchEvent(new KeyboardEvent("keydown", opts));
       return true;
     } catch {
       return false;
@@ -12937,13 +12994,15 @@ ${data.raw}
         return true;
       }
       let opened = false;
-      try {
-        opened = !!openTopicComposerViaService();
-      } catch {
-      }
       if (!opened) {
         try {
           opened = !!clickNativeCreateTopicButton();
+        } catch {
+        }
+      }
+      if (!opened) {
+        try {
+          opened = !!openTopicComposerViaService();
         } catch {
         }
       }
@@ -15347,7 +15406,13 @@ ${data.raw}
   function syncListNav() {
     const nav = document.querySelector(".im-list-nav");
     if (!nav) return;
-    const items = collectListNavItems();
+    const baseItems = collectListNavItems();
+    const existing = new Set(baseItems.map((item) => item.href));
+    const levelItems = accessibleLevelNavItems.filter((item) => !existing.has(item.href)).map((item) => ({
+      ...item,
+      active: location.pathname.replace(/\/$/, "") === item.href.replace(/\/$/, "")
+    }));
+    const items = [...baseItems, ...levelItems];
     let html = items.map(
       (it) => `<a href="${escapeHtml(it.href)}" class="${it.active ? "active" : ""}">${escapeHtml(it.label)}</a>`
     ).join("");
@@ -15455,6 +15520,7 @@ ${data.raw}
       ensureHighlightToggle(panel);
       applyListNavDom();
       syncListSort(panel);
+      loadAccessibleLevelNavItems();
       syncNewToggle(panel, (targetApi) => loadList(targetApi || listApiForPath(location.pathname + location.search) || "/new.json", true));
       return panel;
     }
@@ -15494,6 +15560,7 @@ ${data.raw}
     });
     applyListNavDom();
     syncListSort(panel);
+    loadAccessibleLevelNavItems();
     syncNewToggle(panel, (targetApi) => loadList(targetApi || listApiForPath(location.pathname + location.search) || "/new.json", true));
     return panel;
   }

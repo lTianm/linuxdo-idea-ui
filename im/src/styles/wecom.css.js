@@ -1070,7 +1070,6 @@ export const CSS_WECOM = String.raw`
     .__ROOT_CLASS__.__LOCK_CLASS__ .autocomplete,
     .__ROOT_CLASS__.__LOCK_CLASS__ .autocomplete-container,
     .__ROOT_CLASS__.__LOCK_CLASS__ .d-editor-popup,
-    .__ROOT_CLASS__.__LOCK_CLASS__ .emoji-picker,
     .__ROOT_CLASS__.__LOCK_CLASS__ .tag-chooser {
       display: none !important;
       visibility: hidden !important;

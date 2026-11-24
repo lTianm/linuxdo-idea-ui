@@ -7,7 +7,7 @@ import { api } from "../bridge/api.js";
 import { topicIdFromPath, navigateInApp, listApiForPath } from "../bridge/router.js";
 import { chatHooks } from "./hooks.js";
 import { openNewTopicComposer } from "./composer.js";
-import { categoryById } from "../bridge/categories.js";
+import { categoryById, loadCategories } from "../bridge/categories.js";
 import { refreshRail } from "./rail.js";
 import { onListBodyScroll } from "./list-sources.js";
 import { markNotificationRead } from "./notifications.js";
@@ -72,6 +72,27 @@ function withLatestCreated(items) {
   if (items.some((it) => it.href === item.href)) return items;
   const active = location.pathname === "/" && /(?:^|&)order=created/.test(location.search);
   return [...items, { ...item, active }];
+}
+let accessibleLevelNavItems = [];
+let levelNavLoaded = false;
+let levelNavLoading = false;
+async function loadAccessibleLevelNavItems() {
+  if (levelNavLoaded || levelNavLoading) return;
+  levelNavLoading = true;
+  try {
+    const categories = await loadCategories();
+    accessibleLevelNavItems = categories.map((category) => {
+      const match = String(category.name || "").match(/^开发调优[,，\s]+Lv(\d+)\s*$/i);
+      if (!match || !category.slug || !category.id) return null;
+      return { href: `/c/${category.slug}/${category.id}`, label: `Lv${match[1]}`, level: Number(match[1]) };
+    }).filter(Boolean).sort((a, b) => a.level - b.level).map(({ level, ...item }) => item);
+  } catch {
+    accessibleLevelNavItems = [];
+  } finally {
+    levelNavLoaded = true;
+    levelNavLoading = false;
+    syncListNav();
+  }
 }
 
 // —— 列表排序下拉：order/ascending 与 URL、列表加载双向同步（Discourse TopicList API 原生支持）——
@@ -158,7 +179,13 @@ const TOP_PERIODS = [
 export function syncListNav() {
   const nav = document.querySelector(".im-list-nav");
   if (!nav) return;
-  const items = collectListNavItems();
+  const baseItems = collectListNavItems();
+  const existing = new Set(baseItems.map((item) => item.href));
+  const levelItems = accessibleLevelNavItems.filter((item) => !existing.has(item.href)).map((item) => ({
+    ...item,
+    active: location.pathname.replace(/\/$/, "") === item.href.replace(/\/$/, "")
+  }));
+  const items = [...baseItems, ...levelItems];
   let html = items.map((it) =>
     `<a href="${escapeHtml(it.href)}" class="${it.active ? "active" : ""}">${escapeHtml(it.label)}</a>`
   ).join("");
@@ -289,6 +316,7 @@ export function ensureListPanel() {
     ensureHighlightToggle(panel);
     applyListNavDom();
     syncListSort(panel);
+    loadAccessibleLevelNavItems();
     syncNewToggle(panel, (targetApi) => loadList(targetApi || listApiForPath(location.pathname + location.search) || "/new.json", true));
     return panel;
   }
@@ -330,6 +358,7 @@ export function ensureListPanel() {
   });
   applyListNavDom();
   syncListSort(panel);
+  loadAccessibleLevelNavItems();
   syncNewToggle(panel, (targetApi) => loadList(targetApi || listApiForPath(location.pathname + location.search) || "/new.json", true));
   return panel;
 }
