@@ -10734,10 +10734,24 @@ body.im-detail-open #reply-control {
       if (chatState.topicId !== topicId) return;
       const posts = data.post_stream && data.post_stream.posts || [];
       const stream = data.post_stream && data.post_stream.stream || posts.map((p) => p.id);
+      const previousLastIdx = chatState.renderedLastIdx;
+      const postById = new Map(posts.map((post) => [String(post.id), post]));
+      const renderedMessages = body.querySelectorAll(".im-msg[data-post-id], .im-msg-spam-row[data-post-id]");
+      const renderedLast = renderedMessages[renderedMessages.length - 1];
+      const renderedLastId = renderedLast && renderedLast.dataset.postId;
+      const streamLastIdx = renderedLastId && Array.isArray(stream)
+        ? stream.findIndex((id) => String(id) === String(renderedLastId))
+        : -1;
+      const lastIdx = streamLastIdx >= 0 ? streamLastIdx : previousLastIdx;
+      const newPosts = [];
+      if (Array.isArray(stream) && stream.length) {
+        for (let index = Math.max(0, lastIdx + 1); index < stream.length; index += 1) {
+          const post = postById.get(String(stream[index]));
+          if (!post) break;
+          if (!body.querySelector(`.im-msg[data-post-id="${post.id}"], .im-msg-spam-row[data-post-id="${post.id}"]`)) newPosts.push(post);
+        }
+      }
       if (stream.length) chatState.stream = stream;
-      const newPosts = posts.filter((p) => {
-        return p.post_number > chatState.renderedLastNumber && !body.querySelector(`.im-msg[data-post-number="${p.post_number}"]`);
-      });
       if (newPosts.length) {
         const isNearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 180;
         const myName = getCurrentUsername();
@@ -10747,8 +10761,8 @@ body.im-detail-open #reply-control {
           chatState.renderedLastNumber,
           ...newPosts.map((p) => p.post_number || 0)
         );
-        chatState.renderedLastIdx = chatState.stream.length - 1;
-        chatState.hasNewer = false;
+        chatState.renderedLastIdx = lastIdx + newPosts.length;
+        chatState.hasNewer = chatState.renderedLastIdx < chatState.stream.length - 1;
         if (isNearBottom) {
           body.scrollTo({ top: body.scrollHeight, behavior: "smooth" });
         }
