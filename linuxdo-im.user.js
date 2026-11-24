@@ -10918,35 +10918,65 @@ body.im-detail-open #reply-control {
     return false;
   }
   function syncExternalFavoriteButtons(root = document) {
-    const api = window.__linuxdoFavorites;
-    if (!api || typeof api.isPostFavorited !== "function") return;
     root.querySelectorAll?.('.im-msg[data-post-id]').forEach((msg) => {
       const btn = msg.querySelector('.im-msg-tool[data-action="favorites"]');
       if (!btn) return;
-      const on = Boolean(api.isPostFavorited(chatState.topicId, msg.dataset.postId));
+      const on = queryExternalFavoriteState(chatState.topicId, msg.dataset.postId);
       btn.classList.toggle("im-favorites-active", on);
       btn.innerHTML = on ? ICONS.collectFill : ICONS.collect;
       btn.title = on ? "取消收藏此回复" : "收藏此回复";
     });
   }
+  function queryExternalFavoriteState(topicId, postId) {
+    const api = window.__linuxdoFavorites;
+    if (api && typeof api.isPostFavorited === "function") {
+      return Boolean(api.isPostFavorited(topicId, postId));
+    }
+    const bridge = document.createElement("span");
+    bridge.className = "linuxdo-favorites-bridge";
+    bridge.hidden = true;
+    bridge.dataset.topicId = String(topicId || "");
+    bridge.dataset.postId = String(postId || "");
+    document.documentElement.appendChild(bridge);
+    bridge.dispatchEvent(new Event("linuxdo-favorites-state", { bubbles: true }));
+    try { return Boolean(JSON.parse(bridge.dataset.result || "{}").favorited); } catch { return false; }
+    finally { bridge.remove(); }
+  }
   function toggleFavoritePostFromIm(trigger, msg) {
     const api = window.__linuxdoFavorites;
     const postId = msg?.dataset.postId;
-    if (!api || typeof api.togglePost !== "function" || !postId) {
-      openFavoritesPanelFromIm(trigger);
+    if (!postId) {
+      showImToast("未找到该回复的帖子编号", trigger);
       return;
     }
     const postNumber = Number(msg.dataset.postNumber) || 0;
     const preview = msg.querySelector(".im-msg-bubble")?.textContent?.replace(/\s+/g, " ").trim() || "";
-    const result = api.togglePost({
+    const info = {
       topicId: chatState.topicId,
       postId,
       postNumber,
       title: postNumber > 1 ? `${chatState.title || "LinuxDo 帖子"} - #${postNumber}` : (chatState.title || "LinuxDo 帖子"),
       replyPreview: preview.slice(0, 160)
-    });
+    };
+    let result = null;
+    if (api && typeof api.togglePost === "function") {
+      result = api.togglePost(info);
+    } else {
+      const bridge = document.createElement("span");
+      bridge.className = "linuxdo-favorites-bridge";
+      bridge.hidden = true;
+      bridge.dataset.topicId = String(info.topicId || "");
+      bridge.dataset.postId = String(info.postId || "");
+      bridge.dataset.postNumber = String(info.postNumber || "");
+      bridge.dataset.title = info.title;
+      bridge.dataset.replyPreview = info.replyPreview;
+      document.documentElement.appendChild(bridge);
+      bridge.dispatchEvent(new Event("linuxdo-favorites-toggle", { bubbles: true }));
+      try { result = JSON.parse(bridge.dataset.result || "null"); } catch { result = null; }
+      bridge.remove();
+    }
     if (!result?.ok) {
-      openFavoritesPanelFromIm(trigger);
+      showImToast("请先安装最新版 linux-do-favorites.user.js 收藏夹脚本", trigger);
       return;
     }
     trigger.classList.toggle("im-favorites-active", result.favorited);
@@ -11014,6 +11044,7 @@ body.im-detail-open #reply-control {
     </span>`;
     const boostBar = ((_c = chatHooks.renderBoosts) == null ? void 0 : _c.call(chatHooks, post)) || "";
     const deviceHtml = post.via_device ? `<span class="im-msg-device" title="${escapeHtml(post.via_device)}">${ICONS.phone}<span>${escapeHtml(post.via_device)}</span></span>` : "";
+    const externalFavorite = queryExternalFavoriteState(chatState.topicId, post.id);
     return `
     <div class="im-msg im-msg-${side}" data-post-number="${post.post_number}"${post.id ? ` data-post-id="${post.id}"` : ""}${me ? ' data-mine="1"' : ""} data-username="${escapeHtml(post.username || "")}" data-bookmarked="${post.bookmarked ? "1" : "0"}">
       <span class="im-msg-avatar" style="background:${avatarBg}">${avatar}</span>
@@ -11037,7 +11068,7 @@ body.im-detail-open #reply-control {
           <button class="im-msg-tool" data-action="copy-link" title="复制链接">${ICONS.link}</button>
           <button class="im-msg-tool${post.bookmarked ? " bookmarked" : ""}" data-action="bookmark" title="${post.bookmarked ? "取消收藏" : "收藏"}">${post.bookmarked ? ICONS.bookmarkFill || ICONS.bookmark : ICONS.bookmark}</button>
           <button class="im-msg-tool" data-action="flag" title="举报">${ICONS.flag}</button>
-          <button class="im-msg-tool${window.__linuxdoFavorites?.isPostFavorited?.(chatState.topicId, post.id) ? " im-favorites-active" : ""}" data-action="favorites" title="收藏此回复">${window.__linuxdoFavorites?.isPostFavorited?.(chatState.topicId, post.id) ? ICONS.collectFill : ICONS.collect}</button>
+          <button class="im-msg-tool${externalFavorite ? " im-favorites-active" : ""}" data-action="favorites" title="收藏此回复">${externalFavorite ? ICONS.collectFill : ICONS.collect}</button>
         </div>
       </div>
     </div>`;

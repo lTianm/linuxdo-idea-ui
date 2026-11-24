@@ -3942,6 +3942,29 @@
         return Boolean(favorites[`${topicId}_${postId}`]);
     };
 
+    // Tampermonkey 隔离沙箱之间不能可靠共享 window 属性，使用 DOM 事件作为跨脚本桥接。
+    document.addEventListener('linuxdo-favorites-toggle', (event) => {
+        const bridge = event.target;
+        if (!(bridge instanceof HTMLElement) || !bridge.classList.contains('linuxdo-favorites-bridge')) return;
+        const result = toggleExternalPostFavorite({
+            topicId: bridge.dataset.topicId,
+            postId: bridge.dataset.postId,
+            postNumber: bridge.dataset.postNumber,
+            title: bridge.dataset.title,
+            replyPreview: bridge.dataset.replyPreview
+        });
+        bridge.dataset.result = JSON.stringify(result);
+    });
+    document.addEventListener('linuxdo-favorites-state', (event) => {
+        const bridge = event.target;
+        if (!(bridge instanceof HTMLElement) || !bridge.classList.contains('linuxdo-favorites-bridge')) return;
+        const favorites = getFavorites();
+        bridge.dataset.result = JSON.stringify({
+            ok: true,
+            favorited: Boolean(favorites[`${bridge.dataset.topicId}_${bridge.dataset.postId}`])
+        });
+    });
+
     function animatePanelListUpdate(updateFn) {
         const before = capturePanelListTransition();
         updateFn();
