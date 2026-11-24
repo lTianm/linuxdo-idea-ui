@@ -2484,7 +2484,7 @@
         input.oninput = () => clearNewFolderError();
         input.onkeydown = (e) => {
             if (e.key === 'Enter') { e.preventDefault(); createNewFolder(); }
-            if (e.key === 'Escape') { e.preventDefault(); hideNewFolderDialog(); }
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hideNewFolderDialog(); }
         };
     }
 
@@ -2667,7 +2667,11 @@
         
         const handleKeydown = (e) => {
             if (e.key === 'Enter') handleConfirm();
-            if (e.key === 'Escape') hideDialog();
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                hideDialog();
+            }
         };
         
         cancelBtn.addEventListener('click', hideDialog);
@@ -3844,6 +3848,8 @@
                 if (e.key !== 'Escape') return;
                 const picker = content.querySelector('.ld-fav-panel-page-size-picker.open');
                 if (!picker) return;
+                e.preventDefault();
+                e.stopPropagation();
                 picker.classList.remove('open');
                 const trigger = picker.querySelector('.ld-fav-panel-page-size-trigger');
                 trigger.setAttribute('aria-expanded', 'false');
@@ -4455,6 +4461,39 @@
         document.getElementById('ld-fav-manage-close').addEventListener('click', hideManageDialog);
         document.getElementById('ld-fav-bulk-import-cancel').addEventListener('click', hideBookmarkBulkImportDialog);
         document.getElementById('ld-fav-bulk-import-confirm').addEventListener('click', confirmBookmarkBulkImport);
+
+        // Esc 按层级关闭收藏夹界面：先关闭当前子弹窗，最后关闭收藏面板本身。
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            const panel = document.getElementById('ld-fav-panel');
+            const inlineDialog = panel?.querySelector('.ld-fav-inline-dialog.show');
+            if (inlineDialog) {
+                e.preventDefault();
+                e.stopPropagation();
+                inlineDialog.classList.remove('show');
+                return;
+            }
+            const layers = [
+                ['#ld-fav-new-folder-dialog', hideNewFolderDialog],
+                ['#ld-fav-manage-dialog', hideManageDialog],
+                ['#ld-fav-add-dialog', () => hideAddDialog(true)],
+                ['#ld-fav-bulk-import-dialog', hideBookmarkBulkImportDialog],
+                ['#ld-fav-modal', hideModal]
+            ];
+            for (const [selector, close] of layers) {
+                const layer = document.querySelector(selector);
+                if (!layer?.classList.contains('show')) continue;
+                e.preventDefault();
+                e.stopPropagation();
+                close();
+                return;
+            }
+            if (panel?.classList.contains('show')) {
+                e.preventDefault();
+                e.stopPropagation();
+                hideFavoritesPanel();
+            }
+        });
 
         const bulkImportDialog = document.getElementById('ld-fav-bulk-import-dialog');
         const bulkImportPicker = document.getElementById('ld-fav-bulk-import-folder');
